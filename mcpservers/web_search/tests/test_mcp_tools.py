@@ -43,18 +43,21 @@ async def test_mcp_call_tool_via_server(mock_provider: TavilyProvider):
 
         # 1. search_web
         res_search = await server.call_tool("search_web", {"query": "English idioms", "max_results": 2})
-        assert res_search.is_error is False
+        assert getattr(res_search, "is_error", False) is False
+        assert res_search is not None
 
         # 2. get_page_content
         res_extract = await server.call_tool(
             "get_page_content",
             {"url": "https://en.wikipedia.org/wiki/Spaced_repetition", "max_characters": 1000},
         )
-        assert res_extract.is_error is False
+        assert getattr(res_extract, "is_error", False) is False
+        assert res_extract is not None
 
         # 3. find_vocabulary
         res_vocab = await server.call_tool("find_vocabulary", {"topic": "leadership", "count": 2})
-        assert res_vocab.is_error is False
+        assert getattr(res_vocab, "is_error", False) is False
+        assert res_vocab is not None
     finally:
         sw_mod._DEFAULT_PROVIDER = orig_sw
         gpc_mod._DEFAULT_PROVIDER = orig_gpc

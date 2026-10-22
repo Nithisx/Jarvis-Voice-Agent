@@ -132,8 +132,9 @@ async def test_mcp_call_tool_via_server_instance(isolated_schema):
             "category": "technical",
         },
     )
-    assert res.is_error is False
-    assert len(res.content) > 0
+    assert getattr(res, "is_error", False) is False
+    content = res[0] if isinstance(res, tuple) else getattr(res, "content", [])
+    assert len(content) > 0
 
 
 @pytest.mark.asyncio

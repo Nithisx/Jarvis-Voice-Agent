@@ -17,3 +17,20 @@ interaction:
   interruption_enabled: false
   greeting: "Welcome back, Nithish! It's good to have you here. I'm ready to chat, explore something interesting, and help you practise your communication skills. What's on your mind today?"
 
+wake_word:
+  enabled: true
+  wake_phrases:
+    - "hey jarvis"
+    - "jarvis"
+  silence_timeout_seconds: 3.0
+  energy_threshold: 0.015
+  partial_eval_interval: 0.5
+  max_turn_seconds: 30.0
+
+queue:
+  max_size: 5
+  overflow_policy: "notify"
+
+playback:
+  full_response_synthesis: true
+  max_response_chars: 4000

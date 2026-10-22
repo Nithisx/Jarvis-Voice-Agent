@@ -26,15 +26,17 @@ You speak → JARVIS listens → reasons using DeepSeek → optionally searches 
 | Capability | Technology |
 |---|---|
 | 🎙️ Speech recognition (on-device) | Moonshine Tiny Streaming (CPU) |
-| 🧠 Reasoning & tool use | DeepSeek API via LangGraph |
+| 🛡️ Wake-word gate (on-device) | Local regex gate (`Hey Jarvis`, `Jarvis`) + 3.0s silence endpointing |
+| 🧠 Reasoning & tool use | DeepSeek API via LangGraph (streaming disabled) |
+| 📋 Command queueing | Bounded FIFO queue (cap 5) with non-blocking concurrent capture |
 | 📒 Persistent note-taking | Notes MCP Server + PostgreSQL |
 | 🌐 Web search | Tavily Web Search MCP Server |
-| 🔊 Text-to-speech (on-device) | Kokoro-82M KPipeline (CPU, 24 kHz) |
+| 🔊 Text-to-speech (on-device) | Kokoro-82M (CPU, 24 kHz) · gapless full-response continuous synthesis |
 | 💾 Conversation memory | LangGraph AsyncPostgresSaver |
 
 ---
 
-## Architecture
+## System Architecture
 
 ```
 You speak
@@ -267,27 +269,28 @@ python -m jarvis_brain.main --debug
 ## How JARVIS Works — Turn by Turn
 
 ```
-1. You speak naturally into your microphone.
-2. Moonshine (on-device) converts speech → text in real time.
-3. The transcript enters JARVIS's asyncio queue.
-4. Microphone is muted to prevent audio feedback during processing.
-5. LangGraph sends your message to DeepSeek.
-6. DeepSeek decides: respond directly OR call a tool.
-7. If tools are needed:
-       search_web          → Tavily real-time web search
-       get_page_content    → fetch and read a web page
-       find_vocabulary     → look up word definitions
-       create_note         → save a note to PostgreSQL
-       save_vocabulary     → save a word + schedule spaced repetition
-       get_due_reviews     → recall items due for revision
-       submit_review       → log a recall rating (0–3)
-       get_daily_summary   → what you learned today
-       get_learning_stats  → your overall learning progress
-       ... and more
-8. DeepSeek formulates a natural spoken response.
-9. Kokoro-82M (on-device) synthesizes audio from the response text.
-10. Audio plays through your speakers.
-11. Microphone resumes. Back to step 1.
+1. Moonshine continuously transcribes audio in the background on CPU.
+2. In-place RMS audio energy calculation monitors vocal activity (VAD).
+3. If no wake phrase ("Hey Jarvis" / "Jarvis") is present:
+       → The transcript is completely discarded. Zero DeepSeek calls.
+4. When "Hey Jarvis" or "Jarvis" is detected:
+       → MicGateState transitions from LISTENING_FOR_WAKE_WORD to CAPTURING_COMMAND.
+       → Wake phrase is stripped, remaining text capitalized.
+5. 3.0-Second Silence Endpointing:
+       → A background monitor detects 3.0 continuous seconds of silence below threshold.
+       → Command is validated (non-empty) and enqueued into the FIFO CommandQueue (cap: 5).
+6. VoiceLoop sequentially dequeues the command and invokes LangGraph Brain:
+       → DeepSeek reasons (streaming: false) and optionally loops over MCP tools.
+       → The microphone remains unmuted during LLM/MCP processing, allowing concurrent command capture.
+7. format_response_node produces the complete final answer.
+8. Full-Waveform Kokoro TTS Synthesis:
+       → Kokoro synthesizes all sentences in memory.
+       → Concatenates chunks into a single 1D continuous waveform (float32, 24 kHz).
+       → Amplitude is normalized within [-1.0, 1.0] to prevent audio clipping.
+9. Half-Duplex Playback:
+       → Microphone is muted to prevent acoustic feedback / self-triggering loops.
+       → sounddevice plays the entire continuous waveform without sentence gaps.
+       → After playback + 300ms reverberation settle delay, microphone unblocks and resumes listening.
 ```
 
 ---
@@ -340,7 +343,7 @@ python -m pytest brain\tests\integration\test_deepseek.py::test_deepseek_live_ca
 python -m pytest brain\tests -v
 ```
 
-**Test results:** 32 passed · 1 skipped (live API) · 0 warnings
+**Test results:** 54 passed · 1 skipped (live API opt-in) · 100% offline passing (55 total)
 
 ---
 

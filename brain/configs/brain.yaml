@@ -6,6 +6,7 @@ agent:
   timeout_seconds: 30.0
   max_tool_steps: 6
   readiness_check: true
+  streaming: false
 
 memory:
   thread_id: "jarvis_main_session"
@@ -15,4 +16,3 @@ memory:
 observability:
   log_level: "INFO"
   metrics_enabled: true
-

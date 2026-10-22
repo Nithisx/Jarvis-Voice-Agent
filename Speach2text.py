@@ -27,6 +27,7 @@ class SpeechToTextService:
         self._is_running: bool = False
         self._on_final_callback: Optional[Callable[[str], None]] = None
         self._on_partial_callback: Optional[Callable[[str], None]] = None
+        self._on_audio_activity_callback: Optional[Callable[[float], None]] = None
         self._lock = threading.Lock()
 
     def _handle_partial(self, text: str) -> None:
@@ -67,16 +68,36 @@ class SpeechToTextService:
         self,
         on_final: Callable[[str], None],
         on_partial: Optional[Callable[[str], None]] = None,
+        on_audio_activity: Optional[Callable[[float], None]] = None,
     ) -> None:
         """Start listening to microphone input."""
         self._on_final_callback = on_final
         self._on_partial_callback = on_partial
+        self._on_audio_activity_callback = on_audio_activity
 
         if not self._is_loaded:
             self.load()
 
         with self._lock:
             if not self._is_running and self._mic:
+                if self._on_audio_activity_callback and hasattr(self._mic, "_open_input_stream"):
+                    orig_open = self._mic._open_input_stream
+
+                    def hooked_open(samplerate: int, callback: Any) -> Any:
+                        def hooked_callback(in_data: Any, frames: Any, time_info: Any, status: Any) -> None:
+                            if in_data is not None and self._on_audio_activity_callback:
+                                try:
+                                    import numpy as np
+                                    rms = float(np.sqrt(np.mean(in_data.astype(np.float32) ** 2)))
+                                    self._on_audio_activity_callback(rms)
+                                except Exception:
+                                    pass
+                            callback(in_data, frames, time_info, status)
+
+                        return orig_open(samplerate, hooked_callback)
+
+                    self._mic._open_input_stream = hooked_open
+
                 self._mic.start()
                 self._is_running = True
 

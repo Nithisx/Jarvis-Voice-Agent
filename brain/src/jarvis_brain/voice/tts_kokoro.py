@@ -113,6 +113,57 @@ class KokoroTTSService:
             speed,
         )
 
+    def synthesize_full_waveform(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        speed: Optional[float] = None,
+    ) -> np.ndarray:
+        """Synthesize the complete response text and assemble into a single continuous 1D waveform.
+
+        Avoids artificial sentence gaps by performing full synthesis before playback.
+        """
+        if not self._is_loaded:
+            self.load()
+
+        cleaned = clean_for_speech(text)
+        if not cleaned:
+            return np.zeros(0, dtype=np.float32)
+
+        config = get_config()
+        if len(cleaned) > config.max_response_chars:
+            logger.warning(
+                "Response length (%d chars) exceeds max_response_chars (%d). Synthesizing full text in memory.",
+                len(cleaned),
+                config.max_response_chars,
+            )
+
+        # Split into natural sentences for Kokoro generation, then concatenate all chunks
+        sentences = split_into_sentences(cleaned)
+        if not sentences:
+            sentences = [cleaned]
+
+        all_segments: list[np.ndarray] = []
+        for sentence in sentences:
+            segments = self.synthesize(sentence, voice=voice, speed=speed)
+            for seg in segments:
+                if seg is not None and len(seg) > 0:
+                    arr = seg.astype(np.float32).flatten()
+                    all_segments.append(arr)
+
+        if not all_segments:
+            return np.zeros(0, dtype=np.float32)
+
+        # Assemble and concatenate all compatible waveforms into one continuous audio track
+        full_audio = np.concatenate(all_segments, axis=0)
+
+        # Gentle normalization / clipping to ensure strictly valid audio amplitudes [-1.0, 1.0]
+        max_val = np.max(np.abs(full_audio)) if len(full_audio) > 0 else 0.0
+        if max_val > 1.0:
+            full_audio = full_audio / max_val
+
+        return full_audio.astype(np.float32)
+
     def speak(
         self,
         text: str,
@@ -121,11 +172,17 @@ class KokoroTTSService:
         on_start: Optional[Callable[[], None]] = None,
         on_done: Optional[Callable[[], None]] = None,
     ) -> None:
-        """Clean, synthesize, and incrementally play text through the speaker."""
-        sentences = split_into_sentences(text)
-        if not sentences:
+        """Synthesize the complete response before playing, ensuring smooth gapless playback."""
+        full_audio = self.synthesize_full_waveform(text, voice=voice, speed=speed)
+        if len(full_audio) == 0:
+            if on_done:
+                try:
+                    on_done()
+                except Exception:
+                    pass
             return
 
+        # Playback begins ONLY after 100% of the audio is synthesized
         if on_start:
             try:
                 on_start()
@@ -133,10 +190,8 @@ class KokoroTTSService:
                 pass
 
         try:
-            for sentence in sentences:
-                segments = self.synthesize(sentence, voice=voice, speed=speed)
-                for segment in segments:
-                    audio_player.play(segment, sample_rate=24000)
+            # One continuous playback operation for the fully assembled waveform
+            audio_player.play(full_audio, sample_rate=24000)
         finally:
             if on_done:
                 try:

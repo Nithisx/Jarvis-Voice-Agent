@@ -42,6 +42,7 @@ def create_deepseek_model(
             temperature=temp,
             timeout=config.deepseek_timeout,
             max_retries=2,
+            streaming=False,
         )
 
         if tools:

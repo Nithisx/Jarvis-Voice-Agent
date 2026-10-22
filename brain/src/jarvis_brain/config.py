@@ -120,6 +120,22 @@ class JarvisConfig:
     interaction_mode: str = "half_duplex"
     log_level: str = "INFO"
 
+    # Wake word and silence endpointing
+    wake_word_enabled: bool = True
+    wake_phrases: list[str] = field(default_factory=lambda: ["hey jarvis", "jarvis"])
+    silence_timeout_seconds: float = 3.0
+    energy_threshold: float = 0.015
+    partial_eval_interval: float = 0.5
+    max_turn_seconds: float = 30.0
+
+    # Command queue
+    command_queue_max_size: int = 5
+
+    # Streaming & synthesis
+    llm_streaming: bool = False
+    full_response_synthesis: bool = True
+    max_response_chars: int = 4000
+
     def has_database(self) -> bool:
         """Return True if a non-empty PostgreSQL database URL is configured."""
         return bool(self.database_url and self.database_url.strip())
@@ -200,6 +216,9 @@ def get_config(reload: bool = False) -> JarvisConfig:
     stt_cfg = voice_yaml.get("stt", {})
     tts_cfg = voice_yaml.get("tts", {})
     interaction_cfg = voice_yaml.get("interaction", {})
+    wake_cfg = voice_yaml.get("wake_word", {})
+    queue_cfg = voice_yaml.get("queue", {})
+    playback_cfg = voice_yaml.get("playback", {})
 
     _CONFIG_CACHE = JarvisConfig(
         project_root=root,
@@ -229,6 +248,16 @@ def get_config(reload: bool = False) -> JarvisConfig:
         ),
         interaction_mode=interaction_cfg.get("mode", "half_duplex"),
         log_level=obs_cfg.get("log_level", "INFO"),
+        wake_word_enabled=bool(wake_cfg.get("enabled", True)),
+        wake_phrases=list(wake_cfg.get("wake_phrases", ["hey jarvis", "jarvis"])),
+        silence_timeout_seconds=float(wake_cfg.get("silence_timeout_seconds", 3.0)),
+        energy_threshold=float(wake_cfg.get("energy_threshold", 0.015)),
+        partial_eval_interval=float(wake_cfg.get("partial_eval_interval", 0.5)),
+        max_turn_seconds=float(wake_cfg.get("max_turn_seconds", 30.0)),
+        command_queue_max_size=int(queue_cfg.get("max_size", 5)),
+        llm_streaming=bool(agent_cfg.get("streaming", False)),
+        full_response_synthesis=bool(playback_cfg.get("full_response_synthesis", True)),
+        max_response_chars=int(playback_cfg.get("max_response_chars", 4000)),
     )
     return _CONFIG_CACHE
 

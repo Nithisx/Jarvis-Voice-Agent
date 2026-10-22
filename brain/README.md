@@ -8,36 +8,49 @@ JARVIS is a production-grade, **voice-first** AI assistant running entirely on y
 
 ```
 Microphone
+    │  (PortAudio Audio Frames)
+    ▼
+SpeechToTextService (Speach2text.py / Moonshine Tiny Streaming)
+    │  • Real-time RMS Frame Energy Calculation (VAD)
+    │  • Continuous Local Transcription (no cloud, CPU)
+    │  • Cumulative Partial Transcript Reconciliation
+    ▼
+SpeechInputManager (Local Wake-Word & Silence Endpointing Gate)
+    │  • Wake Phrases: "Hey Jarvis", "Jarvis" (Regex boundary, case-insensitive)
+    │  • 3.0s Silence Endpoint Monitor (0 API calls for background talk or empty wake words)
+    │  • Wake-word stripped, command capitalized
+    ▼
+CommandQueue (Bounded FIFO asyncio.Queue, Capacity = 5)
+    │  • Non-blocking capture while agent is reasoning or calling tools
+    │  • Sequential execution per conversation thread
+    ▼
+VoiceLoop Worker
     │
     ▼
-Moonshine Tiny Streaming (STT)       ← Speach2text.py (SpeechToTextService)
-    │  (on-device, no cloud)
-    ▼
-asyncio Transcript Queue
-    │
-    ▼
-LangGraph StateGraph  ─────────────────────────────────────────────────────┐
-    │                                                                       │
-    ├── DeepSeek API (deepseek-chat)                                        │
-    │      reasoning_node → should_continue? ──► tools_node                │
-    │                              ▲                  │                     │
-    │                              └──────────────────┘                     │
-    │                                (tool loop, max 6 steps)               │
-    │                                                                       │
-    ├── MCP Client Manager (stdio subprocess)                               │
-    │      ├── Notes MCP Server      (mcpservers/notes)                     │
-    │      └── Web Search MCP Server (mcpservers/web_search)                │
-    │                                                                       │
-    └── format_response_node → clean spoken text ◄─────────────────────────┘
-              │
+LangGraph StateGraph  (JARVIS Brain) ────────────────────────────────────────┐
+    │                                                                        │
+    ├── DeepSeek API (deepseek-chat, streaming: false)                      │
+    │      reasoning_node → should_continue? ──► tools_node                 │
+    │                              ▲                  │                      │
+    │                              └──────────────────┘                      │
+    │                                (tool loop, max 6 steps)                │
+    │                                                                        │
+    ├── MCP Client Manager (stdio subprocess)                                │
+    │      ├── Notes MCP Server      (mcpservers/notes)                      │
+    │      └── Web Search MCP Server (mcpservers/web_search)                 │
+    │                                                                        │
+    └── format_response_node → clean spoken text ◄──────────────────────────┘
+              │  (Complete Final Answer)
               ▼
-    Kokoro-82M KPipeline (TTS)       ← local CPU, lang_code="a", voice="af_heart"
-              │
+    Kokoro-82M TTS (synthesize_full_waveform)
+              │  • Sentence segmentation & in-memory synthesis
+              │  • Concatenation into a single continuous 1D float32 waveform (24kHz)
+              │  • Amplitude normalization guard [-1.0, 1.0]
               ▼
-    sounddevice audio playback
-              │
+    AudioOutputPlayer (Single continuous playback via sounddevice)
+              │  • Microphone muted during playback + 300ms reverberation settle delay
               ▼
-    Microphone resumes (half-duplex)
+    Microphone unmuted → Resumes LISTENING_FOR_WAKE_WORD (Half-Duplex)
 ```
 
 Conversation state is persisted in **PostgreSQL** via `AsyncPostgresSaver` (LangGraph checkpoint). Falls back to `MemorySaver` if PostgreSQL is unavailable.
@@ -94,11 +107,14 @@ brain/
 │       │   └── metrics.py          # Per-turn latency tracking
 │       │
 │       └── voice/
-│           ├── speech_input.py     # Moonshine → asyncio.Queue bridge
-│           ├── tts_kokoro.py       # KokoroTTSService (CPU, 24kHz)
+│           ├── wake_word.py        # Local wake-word gate ("Hey Jarvis", "Jarvis")
+│           ├── state.py            # MicGateState and WorkerState models
+│           ├── command_queue.py    # Bounded FIFO command queue (capacity 5)
+│           ├── speech_input.py     # Moonshine VAD + cumulative partials + 3s silence gate
+│           ├── tts_kokoro.py       # KokoroTTSService (full-waveform gapless synthesis)
 │           ├── audio_output.py     # Thread-safe sounddevice player
-│           ├── voice_loop.py       # Continuous half-duplex turn-taking loop
-│           ├── speech_formatter.py # Markdown → clean speech text
+│           ├── voice_loop.py       # Sequential turn-taking worker & queue consumer
+│           ├── speech_formatter.py # Markdown → clean spoken text
 │           └── greeting.py         # Mandatory startup greeting
 │
 └── tests/
@@ -225,13 +241,102 @@ $env:LIVE_TEST = "1"
 
 ### Test coverage summary
 
-| Suite | Count | External calls |
-|---|---|---|
-| `unit/` | 23 tests | None (all mocked) |
-| `safety/` | 6 tests | None |
-| `integration/test_mcp_connections.py` | 1 test | Notes + Web Search MCP subprocesses |
-| `integration/test_deepseek.py` | 2 tests (+ 1 skipped live) | Mocked; live skipped by default |
-| `integration/test_voice_pipeline.py` | 1 test | Loads Kokoro locally, mocks DeepSeek |
+| Suite | Count | External calls | Description |
+|---|---|---|---|
+| `unit/test_wake_word.py` | 7 tests | None | Regex boundaries, punctuation tolerance, case insensitivity |
+| `unit/test_command_queue.py` | 3 tests | None | FIFO order, non-blocking overflow drop, metrics tracking |
+| `unit/test_concurrency.py` | 3 tests | None | Concurrent command capture, error resilience, playback muting |
+| `unit/test_full_synthesis.py` | 4 tests | None | Full-waveform concatenation, normalization guard, single playback |
+| `unit/test_audio_pipeline.py` | 3 tests | None | Streaming disabled check, greeting speaks first, no partial leaks |
+| `unit/test_speech_input.py` | 4 tests | None | RMS energy VAD, partial transcript wake detection, 3s silence endpointing |
+| `unit/test_tts_kokoro.py` | 4 tests | None | Kokoro synthesis, empty string handling, mock pipeline, async speak |
+| `unit/test_voice_loop.py` | 2 tests | None | Single turn execution, queue error recovery |
+| `unit/test_graph.py` | 6 tests | None | LangGraph routing, tool cutoff, response formatting |
+| `unit/test_config.py` | 4 tests | None | Config resolution, model mapping, key masking, DB URL |
+| `unit/test_speech_formatter.py` | 4 tests | None | Markdown stripping, code block removal, sentence splitting |
+| `safety/` | 6 tests | None | Prompt injection neutralization, tool authorization, argument bounds |
+| `integration/test_mcp_connections.py` | 1 test | Stdio Subprocesses | Live Notes + Web Search MCP servers discovery & tool calls |
+| `integration/test_deepseek.py` | 3 tests | Mocked (1 live opt-in) | Model parameter verification, mock readiness, live chat |
+| `integration/test_voice_pipeline.py` | 1 test | Local Kokoro CPU | End-to-end simulated speech turn through Kokoro TTS |
+| **Total** | **55 tests** | **54 passed, 1 skipped (live API opt-in)** | **100% offline passing** |
+
+---
+
+## Voice Pipeline Deep Dive
+
+### 1. Local Wake-Word Gating (`Hey Jarvis`, `Jarvis`)
+JARVIS uses on-device Moonshine Tiny Streaming for continuous transcription, but will **never invoke DeepSeek or external APIs** until a valid wake phrase is recognized.
+
+- **Supported Wake Phrases:** `"Hey Jarvis"`, `"Jarvis"`.
+- **Matching Rules:** Case-insensitive, robust to punctuation (`"Hey Jarvis!"`, `"jarvis,"`), word-boundary enforced (`\b`), and meta-mention filtered (e.g. *"the word jarvis"* does not trigger commands).
+- **Phrase Stripping:** The wake phrase is automatically stripped from the transcribed text, and the remaining command is capitalized before passing to the LangGraph brain (e.g. *"Hey Jarvis, what time is it?"* → *"What time is it?"*).
+- **Zero API Call Guarantee:** Ambient noise, casual conversations, or background chatter without a wake word are discarded completely locally. If a user says *"Hey Jarvis"* alone without any command, it resets after 3 seconds of silence without sending any request to DeepSeek.
+
+### 2. 3-Second Silence Endpointing & RMS VAD
+- **Real-Time VAD:** In `Speach2text.py`, the PortAudio input stream callback computes frame root-mean-square (RMS) energy (`np.sqrt(np.mean(in_data ** 2))`) in-place, without opening a secondary audio stream.
+- **Transcript Reconciliation:** Moonshine's real-time partial updates and committed line tokens (`on_line`) are reconciled without word duplication.
+- **Silence Timer:** Once a wake word is detected and command words begin streaming in, a 3.0-second background silence monitor tracks continuous silence below the energy threshold (`0.015`).
+- Only when 3.0 consecutive seconds of actual silence elapse is the command finalized and dispatched to the command queue.
+
+### 3. Full-Response Gapless Speech Synthesis
+Token-by-token and sentence-by-sentence streaming into Kokoro creates awkward pauses and robotic cadence. JARVIS solves this by synthesizing the **complete response as a single continuous waveform**:
+
+1. DeepSeek generates the full response with `streaming: false`.
+2. LangGraph completes all tool iterations and outputs the final markdown-free text.
+3. Kokoro-82M synthesizes all sentence chunks in memory into NumPy arrays.
+4. All chunks are concatenated into a single 1D continuous array (`float32`, 24 kHz).
+5. An amplitude normalization guard scales the waveform safely within `[-1.0, 1.0]` to prevent digital clipping.
+6. The entire response is played back in a **single continuous call** to `sounddevice`, guaranteeing zero sentence gaps.
+
+### 4. Command Queue & Half-Duplex Concurrency
+- **Bounded FIFO Queue:** Uses an `asyncio.Queue` with a default capacity of 5 commands.
+- **Concurrent Capture:** While JARVIS is actively reasoning with DeepSeek or waiting for MCP tools, the microphone remains unmuted so you can speak your next command. The command is captured, gated, and enqueued.
+- **Sequential Execution:** The `VoiceLoop` worker consumes commands sequentially from the queue, maintaining conversation thread consistency in PostgreSQL.
+- **Half-Duplex Playback Muting:** The microphone is muted strictly during Kokoro audio playback (plus a 300ms reverberation settle delay), completely preventing acoustic echo from re-triggering the assistant.
+- **Queue Overflow Protection:** If the queue exceeds capacity 5, excess commands are dropped cleanly with a logged warning, preventing memory exhaustion.
+
+### 5. State Architecture
+
+JARVIS maintains two explicit, thread-safe state machines:
+
+```
+MicGateState:
+  LISTENING_FOR_WAKE_WORD ──(wake phrase detected)──► CAPTURING_COMMAND
+           ▲                                                  │
+           │                                          (3s silence elapsed)
+           │                                                  ▼
+           └──────────────(audio playback finished)◄─── MUTED_FOR_PLAYBACK
+
+WorkerState:
+  IDLE ──► QUEUED ──► PROCESSING (LLM/MCP) ──► SPEAKING (TTS) ──► IDLE
+                           │
+                     (error occurred)
+                           ▼
+                      RECOVERING ──► IDLE
+```
+
+---
+
+## Verification Procedures
+
+### Verification 1: Background Chatter (Zero LLM API Calls)
+1. Start JARVIS: `.\venv\Scripts\python.exe -m jarvis_brain.main`
+2. Wait for the welcome greeting to play.
+3. Speak normally without saying "Jarvis" (e.g., *"The weather is nice today, let's grab coffee"*).
+4. **Observe:** The terminal shows Moonshine transcribing audio, but no command is dispatched, no LangGraph execution begins, and **zero calls are made to the DeepSeek API**.
+
+### Verification 2: Wake Word & 3-Second Silence Endpointing
+1. Speak: *"Hey Jarvis... what is the capital of France?"*
+2. Pause and remain silent for 3 seconds.
+3. **Observe:** At exactly 3.0 seconds of silence, JARVIS finalizes the command, DeepSeek processes *"What is the capital of France?"*, and Kokoro responds seamlessly.
+
+### Verification 3: Gapless Audio Synthesis
+1. Ask a multi-sentence question: *"Jarvis, tell me three facts about the moon."*
+2. **Observe:** DeepSeek finishes generating the full response before audio plays. The synthesized voice speaks all three facts continuously with natural prosody and zero mid-sentence pauses.
+
+### Verification 4: Concurrent Command Queueing
+1. While JARVIS is reasoning on a complex query (or searching the web), speak: *"Jarvis, remind me to check email."*
+2. **Observe:** The command is captured and placed in the FIFO queue (`Queue size: 1`). As soon as the current turn finishes speaking, JARVIS immediately processes the queued reminder.
 
 ---
 
@@ -250,15 +355,23 @@ $env:LIVE_TEST = "1"
 
 ```yaml
 agent:
+  model_name: "deepseek-chat"
+  api_base_url: "https://api.deepseek.com"
   temperature: 0.7         # DeepSeek sampling temperature
+  max_tokens: 1024         # Output token limit per response
   max_tool_steps: 6        # Maximum MCP tool iterations per turn
   timeout_seconds: 30.0    # DeepSeek API request timeout
   readiness_check: true    # Probe DeepSeek at startup
+  streaming: false         # Disabled for full-response continuous synthesis
 
 memory:
   thread_id: "jarvis_main_session"
   checkpointer_type: "postgres"   # "postgres" or "memory"
   max_history_messages: 20
+
+observability:
+  log_level: "INFO"
+  metrics_enabled: true
 ```
 
 ### `configs/voice.yaml`
@@ -266,16 +379,39 @@ memory:
 ```yaml
 stt:
   model_arch: 2            # Moonshine Tiny Streaming architecture
+  model_name: "moonshine/tiny-streaming"
   language: "en"
 
 tts:
+  model: "kokoro-82m"
   voice: "af_heart"        # Kokoro voice ID
   speed: 1.0
   device: "cpu"
   sample_rate: 24000
+  language: "a"            # American English in Kokoro
 
 interaction:
   mode: "half_duplex"      # Mic mutes during TTS playback (prevents feedback)
+  auto_listen_after_greeting: true
+  interruption_enabled: false
+
+wake_word:
+  enabled: true
+  wake_phrases:
+    - "hey jarvis"
+    - "jarvis"
+  silence_timeout_seconds: 3.0    # 3.0s silence to finalize spoken command
+  energy_threshold: 0.015         # RMS frame energy threshold for VAD
+  partial_eval_interval: 0.5
+  max_turn_seconds: 30.0
+
+queue:
+  max_size: 5                     # FIFO command buffer capacity
+  overflow_policy: "notify"       # Drop + notify on queue overflow
+
+playback:
+  full_response_synthesis: true   # Assemble 1D continuous waveform before playing
+  max_response_chars: 4000
 ```
 
 ### `configs/mcp_servers.yaml`
