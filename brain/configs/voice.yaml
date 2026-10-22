@@ -1,0 +1,19 @@
+stt:
+  model_arch: 2
+  model_name: "moonshine/tiny-streaming"
+  language: "en"
+
+tts:
+  model: "kokoro-82m"
+  voice: "af_heart"
+  speed: 1.0
+  device: "cpu"
+  sample_rate: 24000
+  language: "a"  # American English in Kokoro
+
+interaction:
+  mode: "half_duplex"
+  auto_listen_after_greeting: true
+  interruption_enabled: false
+  greeting: "Welcome back, Nithish! It's good to have you here. I'm ready to chat, explore something interesting, and help you practise your communication skills. What's on your mind today?"
+

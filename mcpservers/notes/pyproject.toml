@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "notes-mcp-server"
+version = "0.1.0"
+description = "Production-ready Notes, Vocabulary, and Spaced-Repetition MCP Server using PostgreSQL"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Voice Agent Team" }
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "psycopg[binary]>=3.1.0",
+    "psycopg-pool>=3.1.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+notes-mcp-server = "notes_server.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+

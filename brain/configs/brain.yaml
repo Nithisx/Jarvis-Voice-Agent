@@ -1,0 +1,18 @@
+agent:
+  model_name: "deepseek-chat"
+  api_base_url: "https://api.deepseek.com"
+  temperature: 0.7
+  max_tokens: 1024
+  timeout_seconds: 30.0
+  max_tool_steps: 6
+  readiness_check: true
+
+memory:
+  thread_id: "jarvis_main_session"
+  checkpointer_type: "postgres"
+  max_history_messages: 20
+
+observability:
+  log_level: "INFO"
+  metrics_enabled: true
+

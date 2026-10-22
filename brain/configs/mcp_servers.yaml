@@ -1,0 +1,17 @@
+mcp_servers:
+  notes:
+    enabled: true
+    transport: "stdio"
+    module: "notes_server.server"
+    working_dir: "."
+    python_path: "mcpservers/notes/src"
+    timeout_seconds: 15.0
+
+  web_search:
+    enabled: true
+    transport: "stdio"
+    module: "web_search_server.server"
+    working_dir: "."
+    python_path: "mcpservers/web_search/src"
+    timeout_seconds: 30.0
+

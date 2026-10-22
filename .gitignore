@@ -1,0 +1,68 @@
+# ─── Secrets & environment ───────────────────────────────────────────────────
+.env
+*.env.local
+*.env.*.local
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ─── Virtual environments ─────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ─── AI model weights & audio cache ──────────────────────────────────────────
+*.wav
+*.mp3
+*.flac
+*.pt
+*.ckpt
+checkpoints/
+# Hugging Face cache is stored in ~/.cache/huggingface, not in repo
+.cache/
+
+# ─── Testing & coverage ───────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.xml
+
+# ─── IDEs & editors ──────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+.DS_Store
+Thumbs.db
+
+# ─── Logs & runtime artifacts ─────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Windows artifacts ────────────────────────────────────────────────────────
+desktop.ini
+$RECYCLE.BIN/
+

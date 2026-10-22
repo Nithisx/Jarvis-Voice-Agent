@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-brain"
+version = "0.1.0"
+description = "JARVIS Voice-to-Voice Personal AI Assistant with Moonshine STT, DeepSeek Reasoning, MCP Tools, and Kokoro-82M Local TTS"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langchain-openai>=0.2.0",
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langgraph-checkpoint>=2.0.0",
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "langchain-mcp-adapters>=0.1.0",
+    "mcp>=1.0.0",
+    "moonshine-voice>=0.1.5",
+    "kokoro>=0.8.0",
+    "sounddevice>=0.5.0",
+    "numpy>=1.24.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    "psycopg[binary]>=3.1.0",
+    "psycopg-pool>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+jarvis = "jarvis_brain.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src", ".."]
+markers = [
+    "integration: marks tests as integration tests that may call real external services",
+    "slow: marks tests expected to take a significant amount of time",
+]
+
